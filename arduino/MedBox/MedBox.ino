@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════
-   MedBox — กล่องยาอัจฉริยะ 6 ช่อง
-   บอร์ด: Heltec WiFi LoRa 32 V4
+   MedBox — Smart Medicine Box 6 Slots
+   Board: Heltec WiFi LoRa 32 V4
    ──────────────────────────────────────────────────────────
    Libraries:
      - Firebase ESP32 Client (Mobizt) v4.x
@@ -16,31 +16,33 @@
 #include <Adafruit_SSD1306.h>
 
 // ═══════════════════════════════════════════════════════════
-//  ① ตั้งค่า
+//  ① Configuration
 // ═══════════════════════════════════════════════════════════
 
+// ─── WiFi (2.4GHz only) ─────────────────────────────
 #define WIFI_SSID     "chompunut"
 #define WIFI_PASSWORD "Pgssupply14364"
 
+// ─── Firebase ────────────────────────────────────────
 #define FIREBASE_HOST    "basic-firebase-web-1d69a-default-rtdb.asia-southeast1.firebasedatabase.app"
 #define FIREBASE_API_KEY "AIzaSyABfYla0viy6ZBb_ULavp3G3A_4o4lk9qg"
 #define USER_EMAIL       "esp32@test.com"
 #define USER_PASS        "Esp32Pass123!"
 
-// ─── ขา Hardware ─────────────────────────────────────
+// ─── Hardware Pins ───────────────────────────────────
 #define BUTTON_PIN    4
 #define BUZZER_PIN    5
 
-// ─── ขา OLED (Heltec V4) ─────────────────────────────
+// ─── OLED Pins (Heltec V4) ───────────────────────────
 #define OLED_SDA      17
 #define OLED_SCL      18
-#define OLED_RST      21        // ⭐ ใช้ขา Reset จริง ไม่ใช่ -1
+#define OLED_RST      21
 #define OLED_ADDR     0x3C
 
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
 
-// ─── ค่าคงที่ ─────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────
 #define NUM_SLOTS        6
 #define MAX_SCHEDULES    6
 #define CHECK_INTERVAL   1000UL
@@ -58,7 +60,7 @@ FirebaseConfig config;
 FirebaseAuth   auth;
 
 // ═══════════════════════════════════════════════════════════
-//  ③ enum + struct
+//  ③ Enums + Structs
 // ═══════════════════════════════════════════════════════════
 
 enum EventStatus {
@@ -108,7 +110,7 @@ EventStatus stringToStatus(String s) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑤ Helpers — เวลา
+//  ⑤ Helpers — Time
 // ═══════════════════════════════════════════════════════════
 
 String getDateString() {
@@ -131,15 +133,15 @@ String makeEventKey(int slot, String date, String time) {
   return "slot" + String(slot) + "_" + date + "_" + time;
 }
 
-String mealRelationToThai(String rel) {
-  if (rel == "before_meal") return "ก่อนอาหาร";
-  if (rel == "after_meal")  return "หลังอาหาร";
-  if (rel == "immediate")   return "กินทันที";
+String mealRelationToEnglish(String rel) {
+  if (rel == "before_meal") return "Before meal";
+  if (rel == "after_meal")  return "After meal";
+  if (rel == "immediate")   return "Immediate";
   return "";
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑥ OLED — Adafruit SSD1306
+//  ⑥ OLED — Adafruit SSD1306 (English only)
 // ═══════════════════════════════════════════════════════════
 
 void oledPrintCenter(String text, int y, int size) {
@@ -165,13 +167,13 @@ void oledSplash() {
 void oledWaiting(String msg) {
   display.clearDisplay();
   oledPrintCenter(msg, 20, 1);
-  oledPrintCenter("กรุณารอ...", 44, 1);
+  oledPrintCenter("Please wait...", 44, 1);
   display.display();
 }
 
 void oledIdle() {
   display.clearDisplay();
-  oledPrintCenter("MedBox 6 ช่อง", 0, 1);
+  oledPrintCenter("MedBox", 0, 1);
   oledPrintCenter(getTimeString(), 18, 3);
   oledPrintCenter(getDateString(), 50, 1);
   display.display();
@@ -181,11 +183,11 @@ void oledNotify(int slot, int schedIdx) {
   Schedule &sc = slots[slot].schedules[schedIdx];
 
   display.clearDisplay();
-  oledPrintCenter(">> ถึงเวลากินยา <<", 0, 1);
+  oledPrintCenter(">> MEDICINE TIME <<", 0, 1);
   oledPrintCenter(slots[slot].medicineName, 16, 2);
   oledPrintCenter(String(slots[slot].dosageMg) + " mg", 38, 2);
   oledPrintCenter(
-    mealRelationToThai(sc.mealRelation) + " | ช่อง " + String(slot),
+    mealRelationToEnglish(sc.mealRelation) + " | Slot " + String(slot),
     56, 1
   );
   display.display();
@@ -194,23 +196,23 @@ void oledNotify(int slot, int schedIdx) {
 void oledConfirmed() {
   display.clearDisplay();
   oledPrintCenter("OK", 12, 3);
-  oledPrintCenter("ยืนยันแล้ว", 46, 1);
+  oledPrintCenter("Confirmed", 46, 1);
   display.display();
 }
 
 void oledMissed() {
   display.clearDisplay();
   oledPrintCenter("TIME", 12, 3);
-  oledPrintCenter("ไม่ยืนยัน", 46, 1);
+  oledPrintCenter("Not Confirmed", 46, 1);
   display.display();
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑦ โหลดข้อมูลยา
+//  ⑦ Load Slots from Firebase
 // ═══════════════════════════════════════════════════════════
 
 void loadSlots() {
-  Serial.println("\n--- โหลดข้อมูลยา ---");
+  Serial.println("\n--- Loading medicine data ---");
 
   for (int i = 1; i <= NUM_SLOTS; i++) {
     String base = "/medicine_box/slots/slot" + String(i);
@@ -218,7 +220,7 @@ void loadSlots() {
     if (Firebase.getString(fbdo, base + "/medicine_name")) {
       slots[i].medicineName = fbdo.stringData();
     } else {
-      slots[i].medicineName = "(ว่าง)";
+      slots[i].medicineName = "(empty)";
     }
 
     if (Firebase.getInt(fbdo, base + "/dosage_mg")) {
@@ -274,11 +276,11 @@ void loadSlots() {
     }
   }
 
-  Serial.println("--- โหลดเสร็จ ---\n");
+  Serial.println("--- Loading complete ---\n");
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑧ เงื่อนไขการแจ้งเตือน
+//  ⑧ Notification Conditions
 // ═══════════════════════════════════════════════════════════
 
 bool isSlotEnabled(int slot) {
@@ -310,7 +312,7 @@ int shouldNotify(int slot, String today, String nowTime) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑨ บันทึก event + แจ้งเตือน
+//  ⑨ Save Event + Notify User
 // ═══════════════════════════════════════════════════════════
 
 void saveEvent(String key, int slot, EventStatus status) {
@@ -334,10 +336,10 @@ void notifyUser(int slot, int schedIdx) {
   Schedule &sc = slots[slot].schedules[schedIdx];
   String msg = slots[slot].medicineName + " "
              + String(slots[slot].dosageMg) + " mg "
-             + mealRelationToThai(sc.mealRelation);
+             + mealRelationToEnglish(sc.mealRelation);
 
   Serial.println("[ALERT] slot" + String(slot)
-                 + " เวลา " + sc.time + ": " + msg);
+                 + " time " + sc.time + ": " + msg);
 }
 
 void stopAlarm() {
@@ -345,7 +347,7 @@ void stopAlarm() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑩ รอสวิตช์
+//  ⑩ Button Wait
 // ═══════════════════════════════════════════════════════════
 
 bool waitButtonPressed(unsigned long timeoutMs) {
@@ -372,50 +374,50 @@ void setup() {
   delay(500);
   Serial.println("\n=== MedBox — Heltec V4 ===");
 
-  // ─── ขา ──────────────────────────────────────
+  // ─── Pins ────────────────────────────────────
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
-  // ⭐⭐⭐ เปิด Vext (จ่ายไฟให้ OLED) — ต้องทำก่อน!
+  // ⭐ เปิด Vext (จ่ายไฟให้ OLED) — ต้องทำก่อน!
   pinMode(Vext, OUTPUT);
-  digitalWrite(Vext, LOW);       // Active LOW = เปิด
-  delay(100);                     // รอให้ไฟเสถียร
+  digitalWrite(Vext, LOW);
+  delay(100);
 
-  // ⭐⭐⭐ Reset OLED (ใช้ GPIO 21 จริง ไม่ใช่ -1)
+  // ⭐ Reset OLED
   pinMode(OLED_RST, OUTPUT);
   digitalWrite(OLED_RST, LOW);
   delay(50);
   digitalWrite(OLED_RST, HIGH);
   delay(50);
 
-  // ⭐⭐⭐ I2C — ใช้ขาจริงของ Heltec V4
+  // ⭐ I2C
   Wire.begin(OLED_SDA, OLED_SCL);
 
-  // ⭐⭐⭐ ทดสอบสแกน I2C (debug)
+  // ─── Scan I2C (debug) ────────────────────────
   Serial.println("Scan I2C...");
   byte found = 0;
   for (byte addr = 1; addr < 127; addr++) {
     Wire.beginTransmission(addr);
     if (Wire.endTransmission() == 0) {
-      Serial.printf("  พบ 0x%02X\n", addr);
+      Serial.printf("  Found 0x%02X\n", addr);
       found++;
     }
   }
-  if (found == 0) Serial.println("  ไม่พบอุปกรณ์ I2C");
+  if (found == 0) Serial.println("  No I2C devices found");
 
-  // ⭐⭐⭐ Init OLED
+  // ─── OLED Init ──────────────────────────────
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    Serial.println("[ERR] OLED ไม่ตอบสนอง");
+    Serial.println("[ERR] OLED init failed");
   } else {
-    Serial.println("[OK] OLED พร้อม");
+    Serial.println("[OK] OLED ready");
   }
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.display();
 
-  // ⭐⭐⭐ ทดสอบวาด (เหมือนไฟล์ OLED Test)
+  // ─── Test draw ──────────────────────────────
   display.clearDisplay();
   display.setTextSize(2);
   display.setCursor(0, 0);
@@ -433,7 +435,7 @@ void setup() {
   delay(1500);
 
   // ─── WiFi ───────────────────────────────────
-  oledWaiting("เชื่อม WiFi...");
+  oledWaiting("Connecting WiFi...");
   Serial.print("[1/4] WiFi");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   int try1 = 0;
@@ -442,7 +444,7 @@ void setup() {
     delay(500);
   }
   if (WiFi.status() != WL_CONNECTED) {
-    oledWaiting("WiFi ไม่ผ่าน!");
+    oledWaiting("WiFi Failed!");
     Serial.println("\n[ERROR] WiFi");
     delay(3000);
     ESP.restart();
@@ -450,7 +452,7 @@ void setup() {
   Serial.println("\n[OK] WiFi: " + WiFi.localIP().toString());
 
   // ─── NTP ────────────────────────────────────
-  oledWaiting("Sync เวลา...");
+  oledWaiting("Syncing time...");
   Serial.print("[2/4] NTP");
   configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 
@@ -461,15 +463,15 @@ void setup() {
     delay(500);
   }
   if (try2 >= 30) {
-    oledWaiting("NTP ไม่ตอบ!");
+    oledWaiting("NTP Failed!");
     Serial.println("\n[ERROR] NTP");
     delay(3000);
     ESP.restart();
   }
-  Serial.println("\n[OK] เวลา: " + getDateString() + " " + getTimeString());
+  Serial.println("\n[OK] Time: " + getDateString() + " " + getTimeString());
 
   // ─── Firebase ───────────────────────────────
-  oledWaiting("เชื่อม Firebase...");
+  oledWaiting("Connecting Firebase...");
   Serial.println("[3/4] Firebase");
   Serial.print("Email: ");
   Serial.println(USER_EMAIL);
@@ -491,9 +493,9 @@ void setup() {
   }
 
   if (Firebase.ready()) {
-    Serial.println("\n[OK] Firebase login สำเร็จ");
+    Serial.println("\n[OK] Firebase login success");
   } else {
-    Serial.println("\n[WARN] Firebase ยังไม่พร้อม");
+    Serial.println("\n[WARN] Firebase not ready");
 
     struct token_info_t info = Firebase.authTokenInfo();
     Serial.print("Token status: ");
@@ -506,14 +508,14 @@ void setup() {
     Serial.println(info.error.message.c_str());
   }
 
-  // ─── โหลดยา ────────────────────────────────
-  oledWaiting("โหลดข้อมูลยา...");
-  Serial.println("[4/4] โหลดยา");
+  // ─── Load Slots ─────────────────────────────
+  oledWaiting("Loading medicine...");
+  Serial.println("[4/4] Loading slots");
   loadSlots();
 
-  // ─── Idle ──────────────────────────────────
+  // ─── Idle ───────────────────────────────────
   oledIdle();
-  Serial.println("=== เริ่มทำงาน ===\n");
+  Serial.println("=== Started ===\n");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -522,13 +524,13 @@ void setup() {
 
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
-    oledWaiting("WiFi หลุด...");
+    oledWaiting("WiFi Lost...");
     delay(2000);
     return;
   }
 
   if (!Firebase.ready()) {
-    oledWaiting("Firebase หลุด...");
+    oledWaiting("Firebase Lost...");
     delay(2000);
     return;
   }
@@ -554,7 +556,7 @@ void loop() {
 
     if (waitButtonPressed(BUTTON_TIMEOUT)) {
       saveEvent(key, slot, EVT_CONFIRMED);
-      Serial.println("   [OK] ผู้ใช้กดยืนยัน");
+      Serial.println("   [OK] User confirmed");
       oledConfirmed();
       delay(2000);
     } else {
