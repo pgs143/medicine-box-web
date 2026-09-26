@@ -203,7 +203,6 @@ document.getElementById("btn-save")?.addEventListener("click", async () => {
     medicine_name: document.getElementById("f-name").value.trim() || "ยังไม่ได้ตั้งค่า",
     dosage_mg: Number(document.getElementById("f-mg").value) || 0,
     schedules: getSelectedSchedules(),
-    times: getSelectedSchedules().map((item) => item.time),
     meal_relation: getSelectedSchedules()[0]?.meal_relation || "after_meal",
     enabled: document.getElementById("f-enabled").checked
   };

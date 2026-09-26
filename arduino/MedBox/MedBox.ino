@@ -43,10 +43,11 @@
 #define SCREEN_HEIGHT 64
 
 // ─── Constants ───────────────────────────────────────
-#define NUM_SLOTS        6
-#define MAX_SCHEDULES    6
-#define CHECK_INTERVAL   1000UL
-#define BUTTON_TIMEOUT   30000UL
+#define NUM_SLOTS          6
+#define MAX_SCHEDULES      8
+#define CHECK_INTERVAL     1000UL       // ตรวจทุก 1 วินาที
+#define BUTTON_TIMEOUT     30000UL      // รอสวิตช์ 30 วินาที
+#define RELOAD_INTERVAL    30000UL      // โหลดข้อมูลใหม่ทุก 30 วิ
 
 // ═══════════════════════════════════════════════════════════
 //  ② Objects
@@ -77,6 +78,7 @@ struct Schedule {
 
 struct Slot {
   String    medicineName;
+  String    medicineNameTH;
   int       dosageMg;
   Schedule  schedules[MAX_SCHEDULES];
   int       scheduleCount;
@@ -85,7 +87,11 @@ struct Slot {
 
 Slot slots[NUM_SLOTS + 1];
 
-unsigned long lastCheck = 0;
+// ─── State ───────────────────────────────────────────
+unsigned long lastCheck   = 0;
+unsigned long lastReload  = 0;
+String        lastDate    = "";
+bool          isNotifying = false;
 
 // ═══════════════════════════════════════════════════════════
 //  ④ Helpers — enum ↔ string
@@ -141,7 +147,7 @@ String mealRelationToEnglish(String rel) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑥ OLED — Adafruit SSD1306 (English only)
+//  ⑥ OLED — Adafruit SSD1306 (English)
 // ═══════════════════════════════════════════════════════════
 
 void oledPrintCenter(String text, int y, int size) {
@@ -217,63 +223,75 @@ void loadSlots() {
   for (int i = 1; i <= NUM_SLOTS; i++) {
     String base = "/medicine_box/slots/slot" + String(i);
 
-    if (Firebase.getString(fbdo, base + "/medicine_name")) {
+    // ─── ชื่อยา ──────────────────────────────────
+    if (Firebase.getString(fbdo, base + "/medicine_name_en")) {
+      slots[i].medicineName = fbdo.stringData();
+    } else if (Firebase.getString(fbdo, base + "/medicine_name")) {
       slots[i].medicineName = fbdo.stringData();
     } else {
       slots[i].medicineName = "(empty)";
     }
 
+    // ─── เก็บชื่อไทย ────────────────────────────
+    if (Firebase.getString(fbdo, base + "/medicine_name")) {
+      slots[i].medicineNameTH = fbdo.stringData();
+    } else {
+      slots[i].medicineNameTH = "";
+    }
+
+    // ─── ขนาด mg ────────────────────────────────
     if (Firebase.getInt(fbdo, base + "/dosage_mg")) {
       slots[i].dosageMg = fbdo.intData();
     } else {
       slots[i].dosageMg = 0;
     }
 
+    // ─── enabled ────────────────────────────────
     if (Firebase.getBool(fbdo, base + "/enabled")) {
       slots[i].enabled = fbdo.boolData();
     } else {
       slots[i].enabled = false;
     }
 
+    // ⭐ schedules[] — อ่านทีละ path ─────────────
     slots[i].scheduleCount = 0;
 
-    if (Firebase.getJSON(fbdo, base + "/schedules")) {
-      FirebaseJsonArray arr;
-      arr.setJsonArrayData(fbdo.jsonString());
+    for (int j = 0; j < MAX_SCHEDULES; j++) {
+      String schedBase = base + "/schedules/" + String(j);
 
-      int n = arr.size();
+      String tTime = "";
+      String tMeal = "";
 
-      for (int j = 0; j < n && j < MAX_SCHEDULES; j++) {
-        FirebaseJson json;
-        FirebaseJsonData d;
-
-        arr.get(d, j);
-        d.getJSON(json);
-
-        FirebaseJsonData dTime;
-        json.get(dTime, "time");
-        slots[i].schedules[j].time = dTime.stringValue;
-
-        FirebaseJsonData dMeal;
-        json.get(dMeal, "meal_relation");
-        slots[i].schedules[j].mealRelation = dMeal.stringValue;
-
-        slots[i].scheduleCount++;
+      if (Firebase.getString(fbdo, schedBase + "/time")) {
+        tTime = fbdo.stringData();
       }
+      if (Firebase.getString(fbdo, schedBase + "/meal_relation")) {
+        tMeal = fbdo.stringData();
+      }
+
+      // ถ้าไม่มีทั้ง time และ meal → จบ
+      if (tTime == "" && tMeal == "") {
+        break;
+      }
+
+      slots[i].schedules[slots[i].scheduleCount].time         = tTime;
+      slots[i].schedules[slots[i].scheduleCount].mealRelation = tMeal;
+
+      Serial.printf("    [%d] %s -> %s\n",
+                    slots[i].scheduleCount,
+                    tTime.c_str(),
+                    tMeal.c_str());
+
+      slots[i].scheduleCount++;
     }
 
+    // ─── สรุป ───────────────────────────────────
     Serial.printf("slot%d: %s | %d mg | enabled=%d | schedules=%d\n",
                   i,
                   slots[i].medicineName.c_str(),
                   slots[i].dosageMg,
                   slots[i].enabled,
                   slots[i].scheduleCount);
-
-    for (int j = 0; j < slots[i].scheduleCount; j++) {
-      Serial.printf("    [%d] %s -> %s\n", j,
-                    slots[i].schedules[j].time.c_str(),
-                    slots[i].schedules[j].mealRelation.c_str());
-    }
   }
 
   Serial.println("--- Loading complete ---\n");
@@ -366,7 +384,32 @@ bool waitButtonPressed(unsigned long timeoutMs) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑪ Setup
+//  ⑪ Auto-Reload
+// ═══════════════════════════════════════════════════════════
+
+void checkReload() {
+  if (isNotifying) return;
+
+  unsigned long nowMs = millis();
+
+  if (nowMs - lastReload > RELOAD_INTERVAL) {
+    lastReload = nowMs;
+    Serial.println("[RELOAD] Refreshing slots from Firebase...");
+    loadSlots();
+  }
+
+  String today = getDateString();
+  if (today != "" && today != lastDate) {
+    if (lastDate != "") {
+      Serial.println("[RELOAD] New day: " + today);
+      loadSlots();
+    }
+    lastDate = today;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ⑫ Setup
 // ═══════════════════════════════════════════════════════════
 
 void setup() {
@@ -379,7 +422,7 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
-  // ⭐ เปิด Vext (จ่ายไฟให้ OLED) — ต้องทำก่อน!
+  // ⭐ เปิด Vext
   pinMode(Vext, OUTPUT);
   digitalWrite(Vext, LOW);
   delay(100);
@@ -394,7 +437,7 @@ void setup() {
   // ⭐ I2C
   Wire.begin(OLED_SDA, OLED_SCL);
 
-  // ─── Scan I2C (debug) ────────────────────────
+  // ─── Scan I2C ────────────────────────────────
   Serial.println("Scan I2C...");
   byte found = 0;
   for (byte addr = 1; addr < 127; addr++) {
@@ -406,7 +449,7 @@ void setup() {
   }
   if (found == 0) Serial.println("  No I2C devices found");
 
-  // ─── OLED Init ──────────────────────────────
+  // ─── OLED Init ───────────────────────────────
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println("[ERR] OLED init failed");
   } else {
@@ -417,24 +460,11 @@ void setup() {
   display.setTextColor(SSD1306_WHITE);
   display.display();
 
-  // ─── Test draw ──────────────────────────────
-  display.clearDisplay();
-  display.setTextSize(2);
-  display.setCursor(0, 0);
-  display.println("MedBox");
-  display.setTextSize(1);
-  display.setCursor(0, 30);
-  display.println("Heltec V4 + Adafruit");
-  display.setCursor(0, 45);
-  display.println("OLED Ready!");
-  display.display();
-  delay(1500);
-
-  // ─── Splash ─────────────────────────────────
+  // ─── Splash ──────────────────────────────────
   oledSplash();
   delay(1500);
 
-  // ─── WiFi ───────────────────────────────────
+  // ─── WiFi ────────────────────────────────────
   oledWaiting("Connecting WiFi...");
   Serial.print("[1/4] WiFi");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -451,7 +481,7 @@ void setup() {
   }
   Serial.println("\n[OK] WiFi: " + WiFi.localIP().toString());
 
-  // ─── NTP ────────────────────────────────────
+  // ─── NTP ─────────────────────────────────────
   oledWaiting("Syncing time...");
   Serial.print("[2/4] NTP");
   configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
@@ -470,7 +500,7 @@ void setup() {
   }
   Serial.println("\n[OK] Time: " + getDateString() + " " + getTimeString());
 
-  // ─── Firebase ───────────────────────────────
+  // ─── Firebase ────────────────────────────────
   oledWaiting("Connecting Firebase...");
   Serial.println("[3/4] Firebase");
   Serial.print("Email: ");
@@ -500,26 +530,26 @@ void setup() {
     struct token_info_t info = Firebase.authTokenInfo();
     Serial.print("Token status: ");
     Serial.println(info.status);
-    Serial.print("Token type: ");
-    Serial.println(info.type);
     Serial.print("Error code: ");
     Serial.println(info.error.code);
     Serial.print("Error message: ");
     Serial.println(info.error.message.c_str());
   }
 
-  // ─── Load Slots ─────────────────────────────
+  // ─── Load Slots ──────────────────────────────
   oledWaiting("Loading medicine...");
   Serial.println("[4/4] Loading slots");
   loadSlots();
 
-  // ─── Idle ───────────────────────────────────
+  // ─── Idle ────────────────────────────────────
   oledIdle();
+  lastReload = millis();
+  lastDate   = getDateString();
   Serial.println("=== Started ===\n");
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ⑫ Loop
+//  ⑬ Loop
 // ═══════════════════════════════════════════════════════════
 
 void loop() {
@@ -535,6 +565,8 @@ void loop() {
     return;
   }
 
+  checkReload();
+
   if (millis() - lastCheck < CHECK_INTERVAL) return;
   lastCheck = millis();
 
@@ -548,6 +580,7 @@ void loop() {
     int idx = shouldNotify(slot, today, now);
     if (idx < 0) continue;
 
+    isNotifying = true;
     didNotify = true;
     String key = makeEventKey(slot, today, now);
 
@@ -567,6 +600,7 @@ void loop() {
     }
 
     stopAlarm();
+    isNotifying = false;
   }
 
   if (!didNotify) {
