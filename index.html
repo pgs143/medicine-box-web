@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>💊 กล่องยา 6 ช่อง — ระบบจัดการยา</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ═══ Header ═══ -->
+  <header>
+    <div class="header-left">
+      <h1>💊 กล่องยา 6 ช่อง</h1>
+      <p class="subtitle">ระบบจัดการและติดตามการกินยา</p>
+    </div>
+
+    <div class="header-right">
+      <div id="status" class="status offline">⏳ กำลังเชื่อมต่อ...</div>
+      <div class="user-info">
+        <span id="user-email">-</span>
+        <button id="btn-logout" class="btn-logout">🚪 ออกจากระบบ</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══ Tabs ═══ -->
+  <nav class="tabs">
+    <button class="tab active" data-tab="slots">📦 ช่องยา</button>
+    <button class="tab" data-tab="history">📜 ประวัติการกิน</button>
+  </nav>
+
+  <!-- ═══ Tab: Slots ═══ -->
+  <main id="tab-slots" class="tab-content active">
+    <div class="section-title">
+      <h2>ช่องยาทั้งหมด</h2>
+      <span class="hint">คลิกการ์ดเพื่อแก้ไข</span>
+    </div>
+    <div id="slots" class="grid"></div>
+  </main>
+
+  <!-- ═══ Tab: History ═══ -->
+  <main id="tab-history" class="tab-content">
+    <div class="section-title">
+      <h2>ประวัติการกินยา</h2>
+      <div class="filter-bar">
+        <input type="date" id="filter-date" class="filter-input">
+        <select id="filter-status" class="filter-input">
+          <option value="">ทุกสถานะ</option>
+          <option value="confirmed">✅ กินแล้ว</option>
+          <option value="notified">🔔 แจ้งแล้ว</option>
+          <option value="missed">❌ พลาด</option>
+          <option value="pending">⏳ รอ</option>
+        </select>
+        <button id="btn-refresh" class="btn-small">🔄 ล้างตัวกรอง</button>
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div id="stats" class="stats-bar"></div>
+
+    <div class="table-wrap">
+      <table id="history-table">
+        <thead>
+          <tr>
+            <th>วันที่</th>
+            <th>เวลา</th>
+            <th>ช่อง</th>
+            <th>ชื่อยา</th>
+            <th>ขนาด</th>
+            <th>สถานะ</th>
+            <th>เวลายืนยัน</th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="7" class="empty">⏳ กำลังโหลด...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- ═══ Modal แก้ไขยา ═══ -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>แก้ไขช่อง <span id="modal-slot"></span></h3>
+
+      <label>ชื่อยา
+        <input type="text" id="f-name" placeholder="เช่น พาราเซตามอล">
+      </label>
+
+      <label>ขนาดยา (mg)
+        <input type="number" id="f-mg" placeholder="เช่น 500" min="0">
+      </label>
+
+      <label>เวลาที่ต้องกิน
+        <div id="f-times-list" class="time-editor"></div>
+        <button type="button" id="btn-add-time" class="btn-add-time">＋ เพิ่มเวลา</button>
+      </label>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="f-enabled">
+        <span>เปิดใช้งานช่องนี้</span>
+      </label>
+
+      <div class="buttons">
+        <button id="btn-save" class="primary">💾 บันทึก</button>
+        <button id="btn-cancel">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guard — ตรวจสอบ login -->
+  <script type="module" src="guard.js"></script>
+  <!-- Logic หลัก -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🔐 เข้าสู่ระบบ — กล่องยา 6 ช่อง</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="login-body">
+
+  <div class="login-box">
+    <div class="login-logo">💊</div>
+    <h1>กล่องยา 6 ช่อง</h1>
+    <p class="login-sub">ระบบจัดการและติดตามการกินยา</p>
+
+    <div class="login-tabs">
+      <button class="login-tab active" data-mode="login">เข้าสู่ระบบ</button>
+      <button class="login-tab" data-mode="register">สมัครสมาชิก</button>
+    </div>
+
+    <form id="auth-form" autocomplete="on">
+      <label>อีเมล
+        <input type="email" id="email" placeholder="you@example.com" required>
+      </label>
+
+      <label>รหัสผ่าน
+        <input type="password" id="password" placeholder="อย่างน้อย 6 ตัวอักษร" minlength="6" required>
+      </label>
+
+      <div id="message" class="message"></div>
+
+      <button type="submit" id="btn-submit" class="primary btn-block">
+        เข้าสู่ระบบ
+      </button>
+    </form>
+
+    <p class="login-footer">
+      © 2026 กล่องยา 6 ช่อง — Student Project
+    </p>
+  </div>
+
+  <script type="module" src="auth.js"></script>
+</body>
+</html>
